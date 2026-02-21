@@ -9,11 +9,14 @@ import { signAccessToken } from "../utils/jwt.js";
 export async function requestOtp(req, res) {
     try {
         const body = req.body || {};
-        const email = String(body.email || "").trim().toLowerCase();
+        const email = String(body.email || "")
+            .trim()
+            .toLowerCase();
 
         if (!email) {
             return res.status(400).json({ message: "Email required" });
         }
+
 
         const code = String(Math.floor(100000 + Math.random() * 900000));
         const codeHash = await hashText(code);
@@ -31,12 +34,18 @@ export async function requestOtp(req, res) {
         );
 
         console.log("OTP CODE:", code);
-
-        return res.json({ message: "OTP sent" });
+        console.log("OTP EMAIL:", email);
+        console.log("OTP CODE:", code);
+        return res.json({
+            message: "OTP sent",
+            dev_code: code
+        });
     } catch (err) {
         console.error(err);
         return res.status(500).json({ message: "Server error" });
     }
+
+
 }
 
 // =========================
@@ -45,7 +54,9 @@ export async function requestOtp(req, res) {
 export async function verifyOtp(req, res) {
     try {
         const body = req.body || {};
-        const email = String(body.email || "").trim().toLowerCase();
+        const email = String(body.email || "")
+            .trim()
+            .toLowerCase();
         const code = String(body.code || "").trim();
         const usernameRaw = body.username;
 
@@ -61,6 +72,7 @@ export async function verifyOtp(req, res) {
        LIMIT 1`, [email]
         );
 
+        // OTP ni topdik
         const otp = otpRes.rows[0];
         if (!otp) return res.status(400).json({ message: "OTP not found" });
 
@@ -68,12 +80,29 @@ export async function verifyOtp(req, res) {
             return res.status(400).json({ message: "OTP expired" });
         }
 
+        // 🟡 LOG LARNI SHU YERGA QO‘YASAN
+        console.log("===== OTP DEBUG =====");
+        console.log("EMAIL:", email);
+        console.log("CODE FROM REQUEST:", JSON.stringify(code), "LEN:", code.length);
+        console.log("DB HASH:", otp.code_hash);
+        console.log("CREATED AT:", otp.created_at);
+        console.log("EXPIRES AT:", otp.expires_at);
+        console.log("=====================");
+
+
+        // Keyin compare
         const isMatch = await compareText(code, otp.code_hash);
+        console.log("COMPARE RESULT:", isMatch);
+
+        console.log("COMPARE RESULT:", isMatch);
+
         if (!isMatch) return res.status(400).json({ message: "Invalid code" });
 
         await pool.query(`UPDATE login_otps SET used=TRUE WHERE id=$1`, [otp.id]);
 
-        let userRes = await pool.query(`SELECT * FROM users WHERE email=$1`, [email]);
+        let userRes = await pool.query(`SELECT * FROM users WHERE email=$1`, [
+            email,
+        ]);
         let user = userRes.rows[0];
 
         if (!user) {
@@ -83,6 +112,8 @@ export async function verifyOtp(req, res) {
                 .slice(0, 12)
                 .toUpperCase();
 
+            console.log("DB OTP HASH:", otp.code_hash);
+            console.log("VERIFY CODE:", JSON.stringify(code));
             let uname = usernameRaw ? String(usernameRaw).trim() : null;
 
             if (uname) {
@@ -111,7 +142,7 @@ export async function verifyOtp(req, res) {
 
         return res.json({
             accessToken,
-            user: { id: user.id, email: user.email, role: user.role }
+            user: { id: user.id, email: user.email, role: user.role },
         });
     } catch (err) {
         console.error(err);

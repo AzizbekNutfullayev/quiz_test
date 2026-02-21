@@ -1,5 +1,7 @@
 import { verifyAccessToken } from "../utils/jwt.js";
 import { pool } from "../config/db.js";
+import jwt from "jsonwebtoken";
+
 
 export async function auth(req, res, next) {
     try {
@@ -33,6 +35,40 @@ export async function auth(req, res, next) {
 
         next();
     } catch (err) {
+        return res.status(401).json({ message: "Invalid or expired token" });
+    }
+}
+
+
+
+
+export function authMiddleware(req, res, next) {
+    try {
+        const header = req.headers.authorization;
+
+        console.log("AUTH HEADER:", header); // ✅ tekshiruv uchun
+
+        if (!header) {
+            return res.status(401).json({ message: "No/invalid token", reason: "Authorization header missing" });
+        }
+
+        const parts = header.trim().split(/\s+/); // ko‘p space bo‘lsa ham ok
+        const type = parts[0];
+        const token = parts[1];
+
+        if (!type || type.toLowerCase() !== "bearer" || !token) {
+            return res.status(401).json({
+                message: "No/invalid token",
+                reason: "Format must be: Authorization: Bearer <token>"
+            });
+        }
+
+        const decoded = verifyAccessToken(token);
+        req.user = decoded;
+
+        return next();
+    } catch (err) {
+        console.log("AUTH ERROR:", err.message);
         return res.status(401).json({ message: "Invalid or expired token" });
     }
 }
