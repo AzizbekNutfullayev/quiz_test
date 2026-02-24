@@ -5,7 +5,7 @@ export function signAccessToken(payload) {
     if (!secret) throw new Error("JWT_ACCESS_SECRET is missing in .env");
 
     return jwt.sign(payload, secret, {
-        expiresIn: process.env.ACCESS_TOKEN_EXPIRES || "15m"
+        expiresIn: process.env.ACCESS_TOKEN_EXPIRES || "30d"
     });
 }
 
