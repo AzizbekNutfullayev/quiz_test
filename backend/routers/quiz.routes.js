@@ -9,17 +9,19 @@ import { authMiddleware } from "../middleware/auth.js";
 
 const router = Router();
 
-router.get("/me", authMiddleware, function(req, res) {
+// barcha quiz route'lar protected
+router.use(authMiddleware);
+
+router.get("/me", function(req, res) {
     res.json({
         message: "You are authenticated",
         user: req.user,
     });
 });
 
-router.post("/start", authMiddleware, startQuiz);
-router.get("/attempts/:attemptId/questions", authMiddleware, getAttemptQuestions);
-
-router.post("/attempts/:attemptId/answer", authMiddleware, submitAnswer);
-router.post("/attempts/:attemptId/finish", authMiddleware, finishAttempt);
+router.post("/start", startQuiz);
+router.get("/attempts/:attemptId/questions", getAttemptQuestions);
+router.post("/attempts/:attemptId/answer", submitAnswer);
+router.post("/attempts/:attemptId/finish", finishAttempt);
 
 export default router;

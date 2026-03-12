@@ -1,7 +1,14 @@
-import pkg from "pg";
-const { Pool } = pkg;
+import { Pool } from "pg";
+import "dotenv/config";
 
 export const pool = new Pool({
-    connectionString: "postgresql://test:3xDWIrqIrrp2tjGDH0xVFSpPzJEaA0dF@dpg-d5vnrhsoud1c738npcvg-a.oregon-postgres.render.com/new_quiz",
-    ssl: { rejectUnauthorized: false },
+    connectionString: process.env.DATABASE_URL,
+});
+
+pool.on("connect", () => {
+    console.log("PostgreSQL connected");
+});
+
+pool.on("error", (err) => {
+    console.error("Unexpected PostgreSQL error:", err);
 });

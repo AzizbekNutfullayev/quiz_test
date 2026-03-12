@@ -2,7 +2,7 @@ import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
 const BASE_URL = process.env.BASE_URL || "http://localhost:5000";
-const TEST_EMAIL = process.env.TEST_EMAIL || "aziz@gmail.com";
+const TEST_EMAIL = process.env.TEST_EMAIL || "newadmin@gmail.com";
 
 async function req(path, opts) {
     const method = (opts && opts.method) ? opts.method : "GET";

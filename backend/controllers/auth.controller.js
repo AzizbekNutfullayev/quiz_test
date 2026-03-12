@@ -1,4 +1,3 @@
-import crypto from "crypto";
 import { pool } from "../config/db.js";
 import { compareText, hashText } from "../utils/crypto.js";
 import { signAccessToken } from "../utils/jwt.js";
@@ -9,43 +8,46 @@ import { signAccessToken } from "../utils/jwt.js";
 export async function requestOtp(req, res) {
     try {
         const body = req.body || {};
-        const email = String(body.email || "")
-            .trim()
-            .toLowerCase();
+        const email = String(body.email || "").trim().toLowerCase();
 
         if (!email) {
             return res.status(400).json({ message: "Email required" });
         }
 
-
+        // 6 xonali OTP
         const code = String(Math.floor(100000 + Math.random() * 900000));
-        const codeHash = await hashText(code);
-        const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+        const otpHash = await hashText(code);
+        const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minut
 
+        // eski active OTP larni used qilamiz
         await pool.query(
-            `UPDATE login_otps
-       SET used=TRUE
-       WHERE email=$1 AND used=FALSE`, [email]
+            `
+      UPDATE otps
+      SET used = TRUE
+      WHERE email = $1 AND used = FALSE
+      `, [email]
         );
 
+        // yangi OTP yozamiz
         await pool.query(
-            `INSERT INTO login_otps(email, code_hash, expires_at)
-       VALUES ($1,$2,$3)`, [email, codeHash, expiresAt]
+            `
+      INSERT INTO otps (email, otp_hash, expires_at)
+      VALUES ($1, $2, $3)
+      `, [email, otpHash, expiresAt]
         );
 
-        console.log("OTP CODE:", code);
         console.log("OTP EMAIL:", email);
         console.log("OTP CODE:", code);
+
         return res.json({
+            ok: true,
             message: "OTP sent",
             dev_code: code
         });
     } catch (err) {
-        console.error(err);
+        console.error("requestOtp ERROR:", err);
         return res.status(500).json({ message: "Server error" });
     }
-
-
 }
 
 // =========================
@@ -54,81 +56,71 @@ export async function requestOtp(req, res) {
 export async function verifyOtp(req, res) {
     try {
         const body = req.body || {};
-        const email = String(body.email || "")
-            .trim()
-            .toLowerCase();
-        const code = String(body.code || "").trim();
-        const usernameRaw = body.username;
+        const email = String(body.email || "").trim().toLowerCase();
+
+        // frontend ba'zida code yuboradi, ba'zida otp
+        const code = String(body.code || body.otp || "").trim();
 
         if (!email || !code) {
             return res.status(400).json({ message: "Email and code required" });
         }
 
+        // eng oxirgi ishlatilmagan OTP ni olamiz
         const otpRes = await pool.query(
-            `SELECT *
-       FROM login_otps
-       WHERE email=$1 AND used=FALSE
-       ORDER BY created_at DESC
-       LIMIT 1`, [email]
+            `
+      SELECT *
+      FROM otps
+      WHERE email = $1 AND used = FALSE
+      ORDER BY created_at DESC
+      LIMIT 1
+      `, [email]
         );
 
-        // OTP ni topdik
-        const otp = otpRes.rows[0];
-        if (!otp) return res.status(400).json({ message: "OTP not found" });
+        const otpRow = otpRes.rows[0];
 
-        if (new Date(otp.expires_at) < new Date()) {
+        if (!otpRow) {
+            return res.status(400).json({ message: "OTP not found" });
+        }
+
+        if (new Date(otpRow.expires_at) < new Date()) {
             return res.status(400).json({ message: "OTP expired" });
         }
 
-        // 🟡 LOG LARNI SHU YERGA QO‘YASAN
-        console.log("===== OTP DEBUG =====");
-        console.log("EMAIL:", email);
-        console.log("CODE FROM REQUEST:", JSON.stringify(code), "LEN:", code.length);
-        console.log("DB HASH:", otp.code_hash);
-        console.log("CREATED AT:", otp.created_at);
-        console.log("EXPIRES AT:", otp.expires_at);
-        console.log("=====================");
+        const isMatch = await compareText(code, otpRow.otp_hash);
 
+        if (!isMatch) {
+            return res.status(400).json({ message: "Invalid code" });
+        }
 
-        // Keyin compare
-        const isMatch = await compareText(code, otp.code_hash);
-        console.log("COMPARE RESULT:", isMatch);
+        // OTP ishlatilgan deb belgilaymiz
+        await pool.query(
+            `
+      UPDATE otps
+      SET used = TRUE
+      WHERE id = $1
+      `, [otpRow.id]
+        );
 
-        console.log("COMPARE RESULT:", isMatch);
+        // user topamiz
+        let userRes = await pool.query(
+            `
+      SELECT *
+      FROM users
+      WHERE email = $1
+      LIMIT 1
+      `, [email]
+        );
 
-        if (!isMatch) return res.status(400).json({ message: "Invalid code" });
-
-        await pool.query(`UPDATE login_otps SET used=TRUE WHERE id=$1`, [otp.id]);
-
-        let userRes = await pool.query(`SELECT * FROM users WHERE email=$1`, [
-            email,
-        ]);
         let user = userRes.rows[0];
 
+        // user bo'lmasa yaratamiz
         if (!user) {
-            const publicId = crypto
-                .randomUUID()
-                .replaceAll("-", "")
-                .slice(0, 12)
-                .toUpperCase();
-
-            console.log("DB OTP HASH:", otp.code_hash);
-            console.log("VERIFY CODE:", JSON.stringify(code));
-            let uname = usernameRaw ? String(usernameRaw).trim() : null;
-
-            if (uname) {
-                const exists = await pool.query(
-                    `SELECT 1 FROM users WHERE username=$1 LIMIT 1`, [uname]
-                );
-                if (exists.rowCount > 0) {
-                    uname = `${uname}_${Math.floor(1000 + Math.random() * 9000)}`;
-                }
-            }
-
             const created = await pool.query(
-                `INSERT INTO users(public_id, username, email, email_verified)
-         VALUES ($1,$2,$3,TRUE)
-         RETURNING *`, [publicId, uname, email]
+                `
+        INSERT INTO users (email, role, is_banned)
+        VALUES ($1, 'user', FALSE)
+        RETURNING *
+        `, [email]
             );
 
             user = created.rows[0];
@@ -138,14 +130,23 @@ export async function verifyOtp(req, res) {
             return res.status(403).json({ message: "You are banned" });
         }
 
-        const accessToken = signAccessToken({ userId: user.id, role: user.role });
+        const accessToken = signAccessToken({
+            id: user.id,
+            email: user.email,
+            role: user.role,
+        });
+
 
         return res.json({
             accessToken,
-            user: { id: user.id, email: user.email, role: user.role },
+            user: {
+                id: user.id,
+                email: user.email,
+                role: user.role,
+            },
         });
     } catch (err) {
-        console.error(err);
+        console.error("verifyOtp ERROR:", err);
         return res.status(500).json({ message: "Server error" });
     }
 }

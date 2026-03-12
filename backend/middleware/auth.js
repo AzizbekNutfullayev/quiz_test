@@ -42,33 +42,41 @@ export async function auth(req, res, next) {
 
 
 
-export function authMiddleware(req, res, next) {
+export const authMiddleware = (req, res, next) => {
     try {
-        const header = req.headers.authorization;
+        const authHeader = req.headers.authorization || "";
 
-        console.log("AUTH HEADER:", header); // ✅ tekshiruv uchun
+        console.log("AUTH HEADER:", authHeader);
 
-        if (!header) {
-            return res.status(401).json({ message: "No/invalid token", reason: "Authorization header missing" });
+        if (!authHeader.startsWith("Bearer ")) {
+            return res.status(401).json({ message: "Unauthorized" });
         }
 
-        const parts = header.trim().split(/\s+/); // ko‘p space bo‘lsa ham ok
-        const type = parts[0];
-        const token = parts[1];
+        const token = authHeader.substring(7).trim();
 
-        if (!type || type.toLowerCase() !== "bearer" || !token) {
-            return res.status(401).json({
-                message: "No/invalid token",
-                reason: "Format must be: Authorization: Bearer <token>"
-            });
+        if (!token) {
+            return res.status(401).json({ message: "Unauthorized" });
         }
 
-        const decoded = verifyAccessToken(token);
-        req.user = decoded;
+        const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
 
-        return next();
+        console.log("DECODED TOKEN:", decoded);
+
+        req.user = {
+            id: decoded.id,
+            email: decoded.email,
+            role: decoded.role,
+        };
+
+        console.log("REQ.USER:", req.user);
+
+        if (!req.user.id) {
+            return res.status(401).json({ message: "Unauthorized" });
+        }
+
+        next();
     } catch (err) {
-        console.log("AUTH ERROR:", err.message);
-        return res.status(401).json({ message: "Invalid or expired token" });
+        console.error("authMiddleware ERROR:", err.message);
+        return res.status(401).json({ message: "Unauthorized" });
     }
-}
+};
