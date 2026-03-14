@@ -1,7 +1,7 @@
 import { pool } from "../config/db.js";
 import { compareText, hashText } from "../utils/crypto.js";
 import { signAccessToken } from "../utils/jwt.js";
-
+import { sendOtpEmail } from "../utils/mail.js";
 // =========================
 // REQUEST OTP
 // =========================

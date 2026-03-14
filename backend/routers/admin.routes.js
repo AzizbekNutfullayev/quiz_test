@@ -16,7 +16,6 @@ import {
 
     adminCreateQuestion,
     adminListQuestions,
-    adminUpdateQuestion,
     adminToggleQuestionStatus,
     adminDeleteQuestion,
 
@@ -65,7 +64,6 @@ router.delete("/subcategories/:id", adminDeleteSubcategory);
 ========================= */
 router.get("/questions", adminListQuestions);
 router.post("/questions", adminCreateQuestion);
-router.patch("/questions/:id", adminUpdateQuestion);
 router.patch("/questions/:id/toggle-status", adminToggleQuestionStatus);
 router.delete("/questions/:id", adminDeleteQuestion);
 
