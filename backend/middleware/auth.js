@@ -42,11 +42,9 @@ export async function auth(req, res, next) {
 
 
 
-export const authMiddleware = (req, res, next) => {
+export const authMiddleware = async(req, res, next) => {
     try {
         const authHeader = req.headers.authorization || "";
-
-        console.log("AUTH HEADER:", authHeader);
 
         if (!authHeader.startsWith("Bearer ")) {
             return res.status(401).json({ message: "Unauthorized" });
@@ -60,23 +58,39 @@ export const authMiddleware = (req, res, next) => {
 
         const decoded = jwt.verify(token, process.env.JWT_ACCESS_SECRET);
 
-        console.log("DECODED TOKEN:", decoded);
+        const userRes = await pool.query(
+            `
+            SELECT id, email, role, is_banned, premium_expires_at
+            FROM users
+            WHERE id = $1
+            LIMIT 1
+            `, [decoded.id]
+        );
+
+        const user = userRes.rows[0];
+
+        if (!user) {
+            return res.status(401).json({ message: "User not found" });
+        }
+
+        if (user.is_banned) {
+            return res.status(403).json({ message: "You are banned" });
+        }
+
+        const isPremium = !!user.premium_expires_at &&
+            new Date(user.premium_expires_at) > new Date();
 
         req.user = {
-            id: decoded.id,
-            email: decoded.email,
-            role: decoded.role,
+            id: user.id,
+            email: user.email,
+            role: user.role,
+            isPremium,
+            premiumExpiresAt: user.premium_expires_at,
         };
-
-        console.log("REQ.USER:", req.user);
-
-        if (!req.user.id) {
-            return res.status(401).json({ message: "Unauthorized" });
-        }
 
         next();
     } catch (err) {
         console.error("authMiddleware ERROR:", err.message);
-        return res.status(401).json({ message: "Unauthorized" });
+        return res.status(401).json({ message: "Invalid or expired token" });
     }
 };

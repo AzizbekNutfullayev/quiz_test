@@ -8,6 +8,8 @@ import {
     adminListCategories,
     adminUpdateCategory,
     adminDeleteCategory,
+    adminGrantPremium,
+    adminRemovePremium,
 
     adminCreateSubcategory,
     adminListSubcategories,
@@ -51,6 +53,9 @@ router.post("/categories", adminCreateCategory);
 router.patch("/categories/:id", adminUpdateCategory);
 router.delete("/categories/:id", adminDeleteCategory);
 
+
+router.post("/users/:userId/grant-premium", adminGrantPremium);
+router.post("/users/:userId/remove-premium", adminRemovePremium);
 /* =========================
    SUBCATEGORIES
 ========================= */

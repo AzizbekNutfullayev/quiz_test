@@ -346,3 +346,180 @@ export async function adminUnbanUser(req, res) {
         return res.status(500).json({ message: "Server error" });
     }
 }
+
+
+
+
+export async function adminGrantPremium(req, res) {
+    const client = await pool.connect();
+
+    try {
+        const userId = String(req.params.userId || "").trim();
+        const planId = Number(req.body && req.body.planId);
+
+        if (!userId) {
+            return res.status(400).json({ message: "Invalid userId" });
+        }
+
+        if (!Number.isInteger(planId) || planId <= 0) {
+            return res.status(400).json({ message: "Invalid planId" });
+        }
+
+        await client.query("BEGIN");
+
+        const userRes = await client.query(
+            `SELECT id, email, premium_expires_at FROM users WHERE id=$1 LIMIT 1`, [userId]
+        );
+
+        if (userRes.rowCount === 0) {
+            await client.query("ROLLBACK");
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        const planRes = await client.query(
+            `SELECT id, name, duration_days, price, currency
+             FROM plans
+             WHERE id=$1 AND is_active=TRUE
+             LIMIT 1`, [planId]
+        );
+
+        if (planRes.rowCount === 0) {
+            await client.query("ROLLBACK");
+            return res.status(404).json({ message: "Plan not found" });
+        }
+
+        const user = userRes.rows[0];
+        const plan = planRes.rows[0];
+
+        const paymentRes = await client.query(
+            `
+            INSERT INTO payments (
+                user_id,
+                plan_id,
+                amount,
+                currency,
+                provider,
+                status,
+                notes,
+                paid_at
+            )
+            VALUES ($1, $2, $3, $4, 'manual', 'paid', 'Granted manually by admin', NOW())
+            RETURNING id
+            `, [userId, plan.id, plan.price, plan.currency]
+        );
+
+        const paymentId = paymentRes.rows[0].id;
+
+        let startsAt;
+
+        if (user.premium_expires_at && new Date(user.premium_expires_at) > new Date()) {
+            startsAt = new Date(user.premium_expires_at);
+        } else {
+            startsAt = new Date();
+        }
+
+        const endsAtRes = await client.query(
+            `SELECT ($1::timestamp + ($2 || ' days')::interval) AS ends_at`, [startsAt.toISOString(), plan.duration_days]
+        );
+
+        const endsAt = endsAtRes.rows[0].ends_at;
+
+        await client.query(
+            `
+            INSERT INTO subscriptions (
+                user_id,
+                plan_id,
+                payment_id,
+                starts_at,
+                ends_at,
+                status
+            )
+            VALUES ($1, $2, $3, $4, $5, 'active')
+            `, [userId, plan.id, paymentId, startsAt.toISOString(), endsAt]
+        );
+
+        await client.query(
+            `
+            UPDATE users
+            SET premium_expires_at = $2
+            WHERE id = $1
+            `, [userId, endsAt]
+        );
+
+        await client.query("COMMIT");
+
+        return res.json({
+            ok: true,
+            message: "Premium granted successfully",
+            data: {
+                userId,
+                planId: plan.id,
+                planName: plan.name,
+                durationDays: plan.duration_days,
+                premiumExpiresAt: endsAt,
+            },
+        });
+    } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("adminGrantPremium ERROR:", err);
+        return res.status(500).json({
+            message: "Server error",
+            error: String(err.message || err),
+        });
+    } finally {
+        client.release();
+    }
+}
+
+
+
+export async function adminRemovePremium(req, res) {
+    const client = await pool.connect();
+
+    try {
+        const userId = String(req.params.userId || "").trim();
+
+        if (!userId) {
+            return res.status(400).json({ message: "Invalid userId" });
+        }
+
+        await client.query("BEGIN");
+
+        const userRes = await client.query(
+            `SELECT id FROM users WHERE id=$1 LIMIT 1`, [userId]
+        );
+
+        if (userRes.rowCount === 0) {
+            await client.query("ROLLBACK");
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        await client.query(
+            `UPDATE users SET premium_expires_at = NULL WHERE id = $1`, [userId]
+        );
+
+        await client.query(
+            `
+            UPDATE subscriptions
+            SET status = 'cancelled'
+            WHERE user_id = $1 AND status = 'active'
+            `, [userId]
+        );
+
+        await client.query("COMMIT");
+
+        return res.json({
+            ok: true,
+            message: "Premium removed successfully",
+        });
+    } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("adminRemovePremium ERROR:", err);
+        return res.status(500).json({
+            message: "Server error",
+            error: String(err.message || err),
+        });
+    } finally {
+        client.release();
+    }
+}
